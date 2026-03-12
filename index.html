@@ -149,11 +149,17 @@
 
     // ===== เปิดรูปแผนที่ (JPG) =====
     // จะเปิดไฟล์: maps/<location>.jpg  เช่น maps/A2-20.jpg
-    function openMapJpg(locRaw){
-      if(!locRaw){
-        alert("ไม่มีค่าโลเคชั่น");
-        return;
-      }
+    
+function openMapJpg(locRaw){
+  if(!locRaw){
+    alert("ไม่มีค่าโลเคชั่น");
+    return;
+  }
+  const url = `maps/${locRaw}.jpg`;
+  // เปิดทันทีในคลิกเดียว (มือถือไม่บล็อก)
+  window.open(url, "_blank");
+}
+
       const url = `maps/${locRaw}.jpg`;
 
       // เช็คว่ามีไฟล์จริงไหมก่อนเปิด (กัน 404)
@@ -239,3 +245,4 @@
   </script>
 </body>
 </html>
+
