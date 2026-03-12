@@ -1,114 +1,16 @@
 <!DOCTYPE html>
-<html lang="th">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>CheckStock</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-
-  <style>
-    body{font-family:sans-serif;background:#f5f5f5;padding:16px;margin:0}
-    h2{margin-bottom:8px}
-    input{width:100%;padding:14px;font-size:18px;margin-bottom:10px}
-    .status{background:#fff;padding:10px;border-radius:8px;margin-bottom:10px}
-    .card{background:#fff;padding:14px;border-radius:8px;margin-bottom:8px}
-    .location{font-size:20px;font-weight:bold;color:#1a73e8}
-    .btn{padding:8px 10px;border-radius:6px;border:0;background:#1a73e8;color:#fff;text-decoration:none}
-  </style>
+  <meta charset="utf-8">
+  <title>Test Mobile</title>
 </head>
-
 <body>
 
-<h2>ค้นหางาน</h2>
-
-<div id="status" class="status">กำลังโหลดข้อมูล…</div>
-<input id="search" placeholder="ค้นหา เช่น A2-10">
-<div id="stats" class="status"></div>
-<div id="zoneInfo"></div>
-<div id="result"></div>
+<h1>✅ MOBILE OK</h1>
 
 <script>
-console.log("BUILD CLEAN OK");
-
-const SHEET_ID = "17dwMvTFAu48MdQ8FwKRDJGAQuAEwpQNmoggzD8OqGJA";
-const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=0`;
-
-const statusEl = document.getElementById("status");
-const searchEl = document.getElementById("search");
-const resultEl = document.getElementById("result");
-const statsEl = document.getElementById("stats");
-const zoneEl = document.getElementById("zoneInfo");
-
-let data = [];
-
-fetch(CSV_URL)
-  .then(r => r.text())
-  .then(text => {
-    const rows = parseCSV(text);
-    const h = rows[0];
-    const iCode = h.indexOf("customer_code");
-    const iJob  = h.indexOf("job_name");
-    const iLoc  = h.indexOf("location");
-
-    data = rows.slice(1).map(r => ({
-      code:r[iCode], job:r[iJob], location:r[iLoc]
-    }));
-
-    statusEl.textContent = `โหลดแล้ว ${data.length} งาน`;
-    renderStats(data, data);
-    render(data);
-  });
-
-searchEl.addEventListener("input", e => {
-  const q = e.target.value.trim().toUpperCase();
-  if(!q){ renderStats(data,data); render(data); zoneEl.innerHTML=""; return; }
-
-  if(/^[A-Z]+\d+(-\d+)?$/.test(q)){
-    const z = data.filter(d => d.location.startsWith(q));
-    zoneEl.innerHTML = `<div class="card">โซน ${q} มี ${z.length} งาน</div>`;
-    renderStats(data,z);
-    render(z);
-    return;
-  }
-
-  const f = data.filter(d =>
-    d.code.includes(q) || d.job.includes(q) || d.location.includes(q)
-  );
-  zoneEl.innerHTML="";
-  renderStats(data,f);
-  render(f);
-});
-
-function renderStats(all, cur){
-  statsEl.innerHTML =
-    `ทั้งหมด ${all.length} งาน | ผลค้นหา ${cur.length} งาน`;
-}
-
-function render(list){
-  resultEl.innerHTML="";
-  list.forEach(d=>{
-    resultEl.innerHTML += `
-      <div class="card">
-        <div>${d.job}</div>
-        <div class="location">${d.location}</div>
-        <a class="btn" href="maps/${d.location}.jpg" target="_blank">แผนที่</a>
-      </div>`;
-  });
-}
-
-function parseCSV(t){
-  const rows=[]; let r=[]; let c=""; let q=false;
-  for(let i=0;i<t.length;i++){
-    const ch=t[i], n=t[i+1];
-    if(ch=='"'){ q=!q; }
-    else if(ch==','&&!q){ r.push(c); c=""; }
-    else if(ch=='\n'&&!q){ r.push(c); rows.push(r); r=[]; c=""; }
-    else c+=ch;
-  }
-  r.push(c); rows.push(r);
-  return rows;
-}
+  document.body.insertAdjacentHTML("beforeend", "<p>JavaScript ทำงาน</p>");
 </script>
 
 </body>
 </html>
-``
