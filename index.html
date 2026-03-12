@@ -1,15 +1,106 @@
+
 <!DOCTYPE html>
-<html>
+<html lang="th">
 <head>
-  <meta charset="utf-8">
-  <title>Test Mobile</title>
+  <meta charset="UTF-8">
+  <title>ค้นหางาน</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 16px;
+      background: #f5f5f5;
+      margin: 0;
+    }
+    h2 { margin-bottom: 12px; }
+    input {
+      width: 100%;
+      padding: 14px;
+      font-size: 18px;
+      margin-bottom: 12px;
+      box-sizing: border-box;
+    }
+    .card {
+      background: white;
+      padding: 16px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+    }
+    .location {
+      font-size: 22px;
+      font-weight: bold;
+      color: #1a73e8;
+    }
+  </style>
 </head>
+
 <body>
 
-<h1>✅ MOBILE OK</h1>
+<h2>ค้นหางาน</h2>
+
+<input id="search" placeholder="พิมพ์รหัสลูกค้า หรือ ชื่องาน">
+
+<div id="result"></div>
 
 <script>
-  document.body.insertAdjacentHTML("beforeend", "<p>JavaScript ทำงาน</p>");
+console.log("BUILD: BASE CLEAN OK");
+
+const SHEET_ID = "17dwMvTFAu48MdQ8FwKRDJGAQuAEwpQNmoggzD8OqGJA";
+const CSV_URL = "https://docs.google.com/spreadsheets/d/" + SHEET_ID + "/export?format=csv";
+
+let data = [];
+
+fetch(CSV_URL)
+  .then(res => res.text())
+  .then(text => {
+    const lines = text.split("\n").slice(1);
+    data = lines.map(line => {
+      const cols = line.split(",");
+      return {
+        code: (cols[0] || "").trim(),
+        job: (cols[1] || "").trim(),
+        location: (cols[2] || "").trim()
+      };
+    }).filter(d => d.code || d.job || d.location);
+  })
+  .catch(err => {
+    document.getElementById("result").innerHTML =
+      "<div class='card'>โหลดข้อมูลไม่สำเร็จ</div>";
+    console.error(err);
+  });
+
+document.getElementById("search").addEventListener("input", search);
+
+function search() {
+  const q = document.getElementById("search").value.toLowerCase();
+  const result = data.filter(d =>
+    d.code.toLowerCase().includes(q) ||
+    d.job.toLowerCase().includes(q) ||
+    d.location.toLowerCase().includes(q)
+  );
+  render(result);
+}
+
+function render(list) {
+  const el = document.getElementById("result");
+  el.innerHTML = "";
+
+  if (!list.length) {
+    el.innerHTML = "<div class='card'>ไม่พบข้อมูล</div>";
+    return;
+  }
+
+  list.forEach(d => {
+    el.innerHTML += `
+      <div class="card">
+        <div><b>${d.job}</b></div>
+        <div class="location">${d.location}</div>
+        <div>รหัสลูกค้า: ${d.code}</div>
+      </div>
+    `;
+  });
+}
 </script>
 
 </body>
