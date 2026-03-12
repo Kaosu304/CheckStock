@@ -1,93 +1,241 @@
+
 <!DOCTYPE html>
 <html lang="th">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>ค้นหางาน</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
   <style>
     body {
       font-family: sans-serif;
       padding: 16px;
       background: #f5f5f5;
+      margin: 0;
     }
+    h2 { margin: 8px 0 14px; }
     input {
       width: 100%;
       padding: 14px;
       font-size: 18px;
       margin-bottom: 12px;
+      border-radius: 10px;
+      border: 1px solid #ddd;
+      box-sizing: border-box;
     }
     .card {
       background: white;
       padding: 16px;
       margin-bottom: 10px;
-      border-radius: 8px;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     }
     .location {
       font-size: 22px;
-      font-weight: bold;
+      font-weight: 800;
       color: #1a73e8;
+      margin-top: 6px;
+      margin-bottom: 6px;
     }
+    .muted { color: #555; }
+
+    /* ปุ่ม */
+    .btn{
+      padding:10px 12px;
+      font-size:16px;
+      border-radius:10px;
+      border:0;
+      cursor:pointer;
+      user-select:none;
+    }
+    .btn.dark{ background:#333; color:#fff; }
+    .btn.blue{ background:#1a73e8; color:#fff; }
+    .btn.gray{ background:#eee; color:#222; }
+    .btn:active{ transform: scale(0.99); }
   </style>
 </head>
+
 <body>
+  <h2>ค้นหางาน</h2>
 
-<h2>ค้นหางาน</h2>
+  <input id="search" placeholder="พิมพ์รหัสลูกค้า หรือ ชื่องาน" autocomplete="off" />
 
-<input id="search" placeholder="พิมพ์รหัสลูกค้า หรือ ชื่องาน">
+  <div id="result"></div>
 
-<div id="result"></div>
+  <script>
+    // ===== ตั้งค่า Google Sheet =====
+    const SHEET_ID = "17dwMvTFAu48MdQ8FwKRDJGAQuAEwpQNmoggzD8OqGJA";
+    const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv`;
 
-<script>
-const SHEET_ID = "17dwMvTFAu48MdQ8FwKRDJGAQuAEwpQNmoggzD8OqGJA";
-const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv`;
+    let data = [];
 
-let data = [];
+    // ===== โหลดข้อมูลจาก CSV =====
+    fetch(CSV_URL)
+      .then(res => res.text())
+      .then(text => {
+        const rows = parseCSV(text);
+        // คาดหวังหัวตาราง: customer_code, job_name, location
+        // แต่จะอ่านตามลำดับคอลัมน์ 3 ช่องแรกเสมอ
+        data = rows.slice(1)
+          .filter(r => r.length >= 3 && (r[0] || r[1] || r[2]))
+          .map(r => {
+            const code = (r[0] || "").trim();
+            const job = (r[1] || "").trim();
+            const location = (r[2] || "").trim();
+            return { code, job, location };
+          });
 
-fetch(CSV_URL)
-  .then(res => res.text())
-  .then(text => {
-    const rows = text.split("\n").slice(1);
-    data = rows.map(r => {
-      const [code, job, location] = r.split(",");
-      return { code, job, location };
-    });
-    autoSearch();
-  });
+        autoSearch();
+      })
+      .catch(err => {
+        document.getElementById("result").innerHTML =
+          `<div class="card"><b>โหลดข้อมูลไม่สำเร็จ</b><div class="muted">ตรวจสอบว่า Google Sheet เปิดเป็น Anyone with the link (Viewer) และลิงก์ถูกต้อง</div></div>`;
+        console.error(err);
+      });
 
-document.getElementById("search").addEventListener("input", search);
+    document.getElementById("search").addEventListener("input", search);
 
-function search() {
-  const q = document.getElementById("search").value.toLowerCase();
-  const result = data.filter(d =>
-    d.code?.toLowerCase().includes(q) ||
-    d.job?.toLowerCase().includes(q)
-  );
-  render(result);
-}
+    // ===== ค้นหา =====
+    function search() {
+      const q = (document.getElementById("search").value || "").toLowerCase().trim();
+      if (!q) {
+        document.getElementById("result").innerHTML = "";
+        return;
+      }
+      const result = data.filter(d =>
+        (d.code || "").toLowerCase().includes(q) ||
+        (d.job || "").toLowerCase().includes(q) ||
+        (d.location || "").toLowerCase().includes(q)
+      );
+      render(result);
+    }
 
-function render(list) {
-  const el = document.getElementById("result");
-  el.innerHTML = "";
-  list.forEach(d => {
-    el.innerHTML += `
-      <div class="card">
-        <div><b>${d.job}</b></div>
-        <div class="location">${d.location}</div>
-        <div>รหัสลูกค้า: ${d.code}</div>
-      </div>
-    `;
-  });
-}
+    // ===== แสดงผล =====
+    function render(list) {
+      const el = document.getElementById("result");
+      el.innerHTML = "";
 
-function autoSearch() {
-  const params = new URLSearchParams(window.location.search);
-  const q = params.get("q");
-  if (q) {
-    document.getElementById("search").value = q;
-    search();
-  }
-}
-</script>
+      if (!list.length) {
+        el.innerHTML = `<div class="card"><b>ไม่พบข้อมูล</b><div class="muted">ลองพิมพ์รหัสลูกค้า หรือชื่องานใหม่</div></div>`;
+        return;
+      }
 
+      list.forEach(d => {
+        const locRaw = (d.location || "").trim(); // เช่น A2-20
+        el.innerHTML += `
+          <div class="card">
+            <div><b>${escapeHtml(d.job || "")}</b></div>
+            <div class="location">${escapeHtml(d.location || "")}</div>
+            <div class="muted">รหัสลูกค้า: ${escapeHtml(d.code || "")}</div>
+
+            <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+              <button class="btn dark" onclick="copyText('${escapeForJs(d.location || "")}')">📋 คัดลอกโลเคชั่น</button>
+              <button class="btn blue" onclick="openMapJpg('${escapeForJs(locRaw)}')">🗺 เปิดแผนที่</button>
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    // ===== ปุ่มคัดลอก =====
+    function copyText(text){
+      if (!text) return;
+      navigator.clipboard.writeText(text).then(()=>{
+        alert("คัดลอกแล้ว: " + text);
+      }).catch(()=>{
+        alert("คัดลอกไม่สำเร็จ (บางเครื่องบล็อก clipboard) ให้กดค้างแล้วคัดลอกแทน");
+      });
+    }
+
+    // ===== เปิดรูปแผนที่ (JPG) =====
+    // จะเปิดไฟล์: maps/<location>.jpg  เช่น maps/A2-20.jpg
+    function openMapJpg(locRaw){
+      if(!locRaw){
+        alert("ไม่มีค่าโลเคชั่น");
+        return;
+      }
+      const url = `maps/${locRaw}.jpg`;
+
+      // เช็คว่ามีไฟล์จริงไหมก่อนเปิด (กัน 404)
+      fetch(url, { method: "HEAD" })
+        .then(r => {
+          if (r.ok) window.open(url, "_blank");
+          else alert(`ไม่พบไฟล์แผนที่: ${locRaw}.jpg\nตรวจว่าอยู่ในโฟลเดอร์ maps/ และชื่อไฟล์ตรงกับโลเคชั่น`);
+        })
+        .catch(() => {
+          // ถ้าบางเบราว์เซอร์ไม่ให้ HEAD ก็ยังลองเปิดไปก่อน
+          window.open(url, "_blank");
+        });
+    }
+
+    // ===== ค้นหาจาก QR เช่น ?q=C001 =====
+    function autoSearch() {
+      const params = new URLSearchParams(window.location.search);
+      const q = params.get("q");
+      if (q) {
+        document.getElementById("search").value = q;
+        search();
+      }
+    }
+
+    // ===== Utility: Escape สำหรับ onclick string =====
+    function escapeForJs(s){
+      return String(s)
+        .replace(/\\/g,"\\\\")
+        .replace(/'/g,"\\'")
+        .replace(/"/g,'\\"')
+        .replace(/\n/g,"\\n")
+        .replace(/\r/g,"\\r");
+    }
+
+    // ===== Utility: Escape HTML (กันข้อมูลแปลกทำหน้าเว็บพัง) =====
+    function escapeHtml(s){
+      return String(s)
+        .replace(/&/g,"&amp;")
+        .replace(/</g,"&lt;")
+        .replace(/>/g,"&gt;")
+        .replace(/"/g,"&quot;")
+        .replace(/'/g,"&#039;");
+    }
+
+    // ===== Utility: Parse CSV แบบรองรับเครื่องหมาย , ในข้อความ (มี "คร่อม") =====
+    function parseCSV(text){
+      const rows = [];
+      let row = [];
+      let cur = "";
+      let inQuotes = false;
+
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        const next = text[i+1];
+
+        if (c === '"' ) {
+          if (inQuotes && next === '"') { // "" -> "
+            cur += '"';
+            i++;
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (c === ',' && !inQuotes) {
+          row.push(cur);
+          cur = "";
+        } else if ((c === '\n' || c === '\r') && !inQuotes) {
+          if (c === '\r' && next === '\n') i++;
+          row.push(cur);
+          rows.push(row);
+          row = [];
+          cur = "";
+        } else {
+          cur += c;
+        }
+      }
+      // ตัวท้ายไฟล์
+      if (cur.length > 0 || row.length) {
+        row.push(cur);
+        rows.push(row);
+      }
+      return rows;
+    }
+  </script>
 </body>
 </html>
