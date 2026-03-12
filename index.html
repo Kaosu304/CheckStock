@@ -1,70 +1,93 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <title>ค้นหางาน</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 16px;
+      background: #f5f5f5;
+    }
+    input {
+      width: 100%;
+      padding: 14px;
+      font-size: 18px;
+      margin-bottom: 12px;
+    }
+    .card {
+      background: white;
+      padding: 16px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+    }
+    .location {
+      font-size: 22px;
+      font-weight: bold;
+      color: #1a73e8;
+    }
+  </style>
+</head>
+<body>
+
+<h2>ค้นหางาน</h2>
+
+<input id="search" placeholder="พิมพ์รหัสลูกค้า หรือ ชื่องาน">
+
+<div id="result"></div>
+
+<script>
+const SHEET_ID = "17dwMvTFAu48MdQ8FwKRDJGAQuAEwpQNmoggzD8OqGJA";
+const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv`;
+
+let data = [];
+
+fetch(CSV_URL)
+  .then(res => res.text())
+  .then(text => {
+    const rows = text.split("\n").slice(1);
+    data = rows.map(r => {
+      const [code, job, location] = r.split(",");
+      return { code, job, location };
+    });
+    autoSearch();
+  });
+
+document.getElementById("search").addEventListener("input", search);
+
+function search() {
+  const q = document.getElementById("search").value.toLowerCase();
+  const result = data.filter(d =>
+    d.code?.toLowerCase().includes(q) ||
+    d.job?.toLowerCase().includes(q)
+  );
+  render(result);
+}
+
 function render(list) {
   const el = document.getElementById("result");
   el.innerHTML = "";
   list.forEach(d => {
-    const locRaw = (d.location || "").trim();
-    const loc = encodeURIComponent(locRaw); // กันอักขระพิเศษ
-    const jpgUrl = `maps/${locRaw}.jpg`;
-    const pngUrl = `maps/${locRaw}.png`;
-
     el.innerHTML += `
       <div class="card">
-        <div><b>${d.job || ""}</b></div>
-        <div class="location">${d.location || ""}</div>
-        <div>รหัสลูกค้า: ${d.code || ""}</div>
-
-        <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
-          <button onclick="copyText('${escapeForJs(d.location || "")}')"
-            style="padding:10px 12px; font-size:16px; border-radius:8px; border:0; background:#333; color:#fff;">
-            📋 คัดลอกโลเคชั่น
-          </button>
-
-          <button onclick="openMap('${escapeForJs(locRaw)}')"
-            style="padding:10px 12px; font-size:16px; border-radius:8px; border:0; background:#1a73e8; color:#fff;">
-            🗺 เปิดแผนที่
-          </button>
-        </div>
+        <div><b>${d.job}</b></div>
+        <div class="location">${d.location}</div>
+        <div>รหัสลูกค้า: ${d.code}</div>
       </div>
     `;
   });
 }
 
-// คัดลอกข้อความ
-function copyText(text){
-  navigator.clipboard.writeText(text).then(()=>{
-    alert("คัดลอกแล้ว: " + text);
-  });
-}
-
-// เปิดรูปแผนที่จากโฟลเดอร์ maps โดยใช้ชื่อไฟล์ = location
-function openMap(locRaw){
-  if(!locRaw){
-    alert("ไม่มีค่าโลเคชั่น");
-    return;
+function autoSearch() {
+  const params = new URLSearchParams(window.location.search);
+  const q = params.get("q");
+  if (q) {
+    document.getElementById("search").value = q;
+    search();
   }
-  const jpg = `maps/${locRaw}.jpg`;
-  const png = `maps/${locRaw}.png`;
-
-  // ลองเช็กว่ามีไฟล์ไหม: ทดลองโหลดแบบ HEAD ด้วย fetch
-  fetch(jpg, {method:"HEAD"}).then(r=>{
-    if(r.ok) window.open(jpg, "_blank");
-    else return fetch(png, {method:"HEAD"});
-  }).then(r=>{
-    if(!r) return;
-    if(r.ok) window.open(png, "_blank");
-    else alert(`ไม่พบไฟล์แผนที่: ${locRaw}.jpg หรือ ${locRaw}.png\n(ตรวจชื่อไฟล์ในโฟลเดอร์ maps/)`);
-  }).catch(()=>{
-    // ถ้าเบราว์เซอร์ไม่ให้ HEAD บางกรณี ก็ลองเปิด jpg ก่อน
-    window.open(jpg, "_blank");
-  });
 }
+</script>
 
-// กันอักขระที่ทำให้ JS string พัง
-function escapeForJs(s){
-  return String(s)
-    .replace(/\\/g,"\\\\")
-    .replace(/'/g,"\\'")
-    .replace(/"/g,'\\"')
-    .replace(/\n/g,"\\n")
-    .replace(/\r/g,"\\r");
-}
+</body>
+</html>
