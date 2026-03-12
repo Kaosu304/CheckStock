@@ -1,310 +1,114 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <title>CheckStock</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <style>
+    body{font-family:sans-serif;background:#f5f5f5;padding:16px;margin:0}
+    h2{margin-bottom:8px}
+    input{width:100%;padding:14px;font-size:18px;margin-bottom:10px}
+    .status{background:#fff;padding:10px;border-radius:8px;margin-bottom:10px}
+    .card{background:#fff;padding:14px;border-radius:8px;margin-bottom:8px}
+    .location{font-size:20px;font-weight:bold;color:#1a73e8}
+    .btn{padding:8px 10px;border-radius:6px;border:0;background:#1a73e8;color:#fff;text-decoration:none}
+  </style>
+</head>
+
+<body>
+
+<h2>ค้นหางาน</h2>
+
+<div id="status" class="status">กำลังโหลดข้อมูล…</div>
+<input id="search" placeholder="ค้นหา เช่น A2-10">
+<div id="stats" class="status"></div>
+<div id="zoneInfo"></div>
+<div id="result"></div>
+
 <script>
-/* ===== BUILD TAG (ไว้เช็กว่าโค้ดชุดนี้รันจริง) ===== */
-console.log("CheckStock BUILD: 2026-03-12-STATS-ZONE-01");
+console.log("BUILD CLEAN OK");
 
-/* =========================
-   ตั้งค่า Google Sheets
-========================= */
 const SHEET_ID = "17dwMvTFAu48MdQ8FwKRDJGAQuAEwpQNmoggzD8OqGJA";
-const GID = 0;
-const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
+const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=0`;
 
-/* =========================
-   DOM
-========================= */
+const statusEl = document.getElementById("status");
+const searchEl = document.getElementById("search");
+const resultEl = document.getElementById("result");
+const statsEl = document.getElementById("stats");
+const zoneEl = document.getElementById("zoneInfo");
+
 let data = [];
-let loaded = false;
 
-const $status = document.getElementById("status");
-const $search = document.getElementById("search");
-const $result = document.getElementById("result");
-const $stats = document.getElementById("stats");
-const $zoneInfo = document.getElementById("zoneInfo");
-
-if(!$stats){
-  console.error("ไม่พบ #stats -> กรุณาตรวจว่า <div id='stats'> อยู่ในหน้า HTML");
-}
-if(!$zoneInfo){
-  console.error("ไม่พบ #zoneInfo -> กรุณาตรวจว่า <div id='zoneInfo'></div> อยู่ในหน้า HTML");
-}
-
-/* =========================
-   โหลดข้อมูล
-========================= */
-loadData();
-$search.addEventListener("input", debounce(onSearch, 120));
-
-async function loadData(){
-  try{
-    $status.className = "status";
-    $status.textContent = "กำลังโหลดข้อมูลจาก Google Sheets…";
-
-    const res = await fetch(CSV_URL, { cache: "no-store" });
-    if(!res.ok) throw new Error("HTTP " + res.status);
-
-    const text = await res.text();
-    if(text.trim().startsWith("<!DOCTYPE html")) {
-      throw new Error("ได้ HTML แทน CSV (ตรวจสิทธิ์การแชร์ชีท)");
-    }
-
+fetch(CSV_URL)
+  .then(r => r.text())
+  .then(text => {
     const rows = parseCSV(text);
-    if(!rows || rows.length < 2) throw new Error("CSV ว่างหรืออ่านไม่สำเร็จ");
+    const h = rows[0];
+    const iCode = h.indexOf("customer_code");
+    const iJob  = h.indexOf("job_name");
+    const iLoc  = h.indexOf("location");
 
-    const header = rows[0].map(x => (x||"").trim().toLowerCase());
-    const idxCode = header.indexOf("customer_code");
-    const idxJob  = header.indexOf("job_name");
-    const idxLoc  = header.indexOf("location");
-    if(idxCode < 0 || idxJob < 0 || idxLoc < 0){
-      throw new Error("หัวตารางต้องเป็น customer_code / job_name / location (อยู่แถวแรก)");
-    }
+    data = rows.slice(1).map(r => ({
+      code:r[iCode], job:r[iJob], location:r[iLoc]
+    }));
 
-    data = rows.slice(1)
-      .map(r => ({
-        code: (r[idxCode] || "").trim(),
-        job: (r[idxJob] || "").trim(),
-        location: (r[idxLoc] || "").trim()
-      }))
-      .filter(d => d.code || d.job || d.location);
-
-    loaded = true;
-
-    // อัปเดตสถานะ + สรุปครั้งแรก
-    $status.className = "status ok";
-    $status.textContent = `โหลดสำเร็จ ✅ ${data.length} รายการ`;
-
-    const preview = data.slice(0, 20);
-    updateStats(data, preview);
-    render(preview, true);
-    if($zoneInfo) $zoneInfo.innerHTML = "";
-
-    autoSearch();
-  }catch(err){
-    loaded = false;
-    $status.className = "status err";
-    $status.innerHTML = `<b>โหลดข้อมูลไม่สำเร็จ ❌</b><br><span class="muted">${escapeHtml(String(err))}</span>`;
-    console.error(err);
-  }
-}
-
-/* =========================
-   สรุปสถิติ
-========================= */
-function countsOf(list){
-  // ใช้ Set เพื่อหาจำนวนไม่ซ้ำ (ลูกค้า/โลเคชั่น) [1](https://www.w3schools.com/html/html_editors.asp)[2](https://github.com/Peter-Haro/manual-upload-project)
-  const jobs = list.length;
-  const customers = new Set(list.map(x => (x.code||"").trim()).filter(Boolean)).size;
-  const locations = new Set(list.map(x => (x.location||"").trim()).filter(Boolean)).size;
-  return { jobs, customers, locations };
-}
-
-function updateStats(fullList, filteredList){
-  if(!$stats) return;
-
-  const total = countsOf(fullList);
-  const filtered = countsOf(filteredList);
-
-  $stats.innerHTML = `
-    <b>สรุปทั้งหมด</b>: ${total.jobs} งาน • ${total.customers} ลูกค้า • ${total.locations} โลเคชั่น<br>
-    <b>ผลค้นหา</b>: ${filtered.jobs} งาน • ${filtered.customers} ลูกค้า • ${filtered.locations} โลเคชั่น
-  `;
-}
-
-/* =========================
-   โซน
-========================= */
-function isZoneQuery(q){
-  // A2 / A2-10 / A2-10-01
-  return /^[A-Za-z]+\d+(?:-[A-Za-z0-9]+)*$/.test(q);
-}
-
-function filterByZone(zone){
-  const z = zone.trim().toUpperCase();
-  return data.filter(d => {
-    const loc = (d.location || "").trim().toUpperCase();
-    if(!loc) return false;
-    return (loc === z) || loc.startsWith(z + "-"); // กัน A2-100 หลุดจาก A2-10
+    statusEl.textContent = `โหลดแล้ว ${data.length} งาน`;
+    renderStats(data, data);
+    render(data);
   });
-}
 
-function renderZoneInfo(zone, list){
-  if(!$zoneInfo) return;
+searchEl.addEventListener("input", e => {
+  const q = e.target.value.trim().toUpperCase();
+  if(!q){ renderStats(data,data); render(data); zoneEl.innerHTML=""; return; }
 
-  if(!zone){
-    $zoneInfo.innerHTML = "";
+  if(/^[A-Z]+\d+(-\d+)?$/.test(q)){
+    const z = data.filter(d => d.location.startsWith(q));
+    zoneEl.innerHTML = `<div class="card">โซน ${q} มี ${z.length} งาน</div>`;
+    renderStats(data,z);
+    render(z);
     return;
   }
-  const c = countsOf(list);
-  $zoneInfo.innerHTML = `
-    <div class="card">
-      <b>โซน: ${escapeHtml(zone)}</b><br>
-      <span class="muted">มี ${c.jobs} งาน • ${c.customers} ลูกค้า • ${c.locations} โลเคชั่น</span>
-    </div>
-  `;
-}
 
-/* =========================
-   ค้นหา
-========================= */
-function filterByQuery(q){
-  const qq = q.toLowerCase();
-  return data.filter(d =>
-    (d.code || "").toLowerCase().includes(qq) ||
-    (d.job || "").toLowerCase().includes(qq) ||
-    (d.location || "").toLowerCase().includes(qq)
+  const f = data.filter(d =>
+    d.code.includes(q) || d.job.includes(q) || d.location.includes(q)
   );
+  zoneEl.innerHTML="";
+  renderStats(data,f);
+  render(f);
+});
+
+function renderStats(all, cur){
+  statsEl.innerHTML =
+    `ทั้งหมด ${all.length} งาน | ผลค้นหา ${cur.length} งาน`;
 }
 
-function onSearch(){
-  if(!loaded) return;
-
-  const q = ($search.value || "").trim();
-
-  // ไม่พิมพ์อะไร: แสดงพรีวิว + สรุป
-  if(!q){
-    const preview = data.slice(0, 20);
-    updateStats(data, preview);
-    render(preview, true);
-    renderZoneInfo("", []);
-    return;
-  }
-
-  // โหมดโซน
-  if(isZoneQuery(q)){
-    const zoneList = filterByZone(q);
-    renderZoneInfo(q, zoneList);
-    updateStats(data, zoneList);
-    render(zoneList, false);
-    return;
-  }
-
-  // ค้นหาแบบปกติ
-  const list = filterByQuery(q);
-  renderZoneInfo("", []);
-  updateStats(data, list);
-  render(list, false);
-}
-
-/* =========================
-   แสดงผลรายการ
-========================= */
-function render(list, isPreview){
-  $result.innerHTML = "";
-
-  if(isPreview){
-    $result.innerHTML += `
+function render(list){
+  resultEl.innerHTML="";
+  list.forEach(d=>{
+    resultEl.innerHTML += `
       <div class="card">
-        <b>ตัวอย่างข้อมูล 20 รายการแรก</b>
-        <div class="muted">พิมพ์ค้นหาเพื่อกรอง หรือพิมพ์โซนเช่น A2-10 เพื่อดูงานทั้งหมดในโซน</div>
-      </div>
-    `;
-  }
-
-  if(!list.length){
-    $result.innerHTML += `<div class="card"><b>ไม่พบข้อมูล</b><div class="muted">ลองพิมพ์ใหม่ เช่น รหัสลูกค้า หรือ A2-10</div></div>`;
-    return;
-  }
-
-  const sorted = [...list].sort((a,b) => {
-    const la = (a.location||"").localeCompare((b.location||""), "th");
-    if(la !== 0) return la;
-    return (a.job||"").localeCompare((b.job||""), "th");
-  });
-
-  for(const d of sorted){
-    const loc = (d.location || "").trim();
-    const mapUrl = `maps/${encodeURIComponent(loc)}.jpg`;
-
-    $result.innerHTML += `
-      <div class="card">
-        <div class="job">${escapeHtml(d.job || "")}</div>
-        <div class="location">${escapeHtml(loc)}</div>
-        <div class="muted">รหัสลูกค้า: ${escapeHtml(d.code || "")}</div>
-
-        <div class="actions">
-          <button class="btn dark" type="button" onclick="copyText('${escapeForJs(loc)}')">📋 คัดลอกโลเคชั่น</button>
-          <a class="btn blue" href="${mapUrl}" target="_blank" rel="noopener">🗺 เปิดแผนที่</a>
-        </div>
-      </div>
-    `;
-  }
-}
-
-/* =========================
-   QR auto search (?q=...)
-========================= */
-function autoSearch(){
-  const q = new URLSearchParams(window.location.search).get("q");
-  if(q){
-    $search.value = q;
-    onSearch();
-  }
-}
-
-/* =========================
-   Copy
-========================= */
-function copyText(text){
-  if(!text) return;
-  navigator.clipboard.writeText(text).then(()=>{
-    alert("คัดลอกแล้ว: " + text);
-  }).catch(()=>{
-    alert("คัดลอกอัตโนมัติไม่สำเร็จ ให้กดค้างแล้วคัดลอกแทน");
+        <div>${d.job}</div>
+        <div class="location">${d.location}</div>
+        <a class="btn" href="maps/${d.location}.jpg" target="_blank">แผนที่</a>
+      </div>`;
   });
 }
 
-/* =========================
-   Utilities
-========================= */
-function debounce(fn, ms){
-  let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms); };
-}
-
-function escapeForJs(s){
-  return String(s)
-    .replace(/\\/g,"\\\\")
-    .replace(/'/g,"\\'")
-    .replace(/"/g,'\\"')
-    .replace(/\n/g,"\\n")
-    .replace(/\r/g,"\\r");
-}
-
-function escapeHtml(s){
-  return String(s)
-    .replace(/&/g,"&amp;")
-    .replace(/</g,"&lt;")
-    .replace(/>/g,"&gt;")
-    .replace(/"/g,"&quot;")
-    .replace(/'/g,"&#039;");
-}
-
-/* CSV parser รองรับ comma/newline ใน "..." */
-function parseCSV(text){
-  if(text && text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // BOM
-  const rows = [];
-  let row = [];
-  let cur = "";
-  let inQuotes = false;
-
-  for(let i=0;i<text.length;i++){
-    const c = text[i];
-    const n = text[i+1];
-
-    if(c === '"'){
-      if(inQuotes && n === '"'){ cur += '"'; i++; }
-      else inQuotes = !inQuotes;
-    }else if(c === ',' && !inQuotes){
-      row.push(cur); cur = "";
-    }else if((c === '\n' || c === '\r') && !inQuotes){
-      if(c === '\r' && n === '\n') i++;
-      row.push(cur); rows.push(row);
-      row = []; cur = "";
-    }else{
-      cur += c;
-    }
+function parseCSV(t){
+  const rows=[]; let r=[]; let c=""; let q=false;
+  for(let i=0;i<t.length;i++){
+    const ch=t[i], n=t[i+1];
+    if(ch=='"'){ q=!q; }
+    else if(ch==','&&!q){ r.push(c); c=""; }
+    else if(ch=='\n'&&!q){ r.push(c); rows.push(r); r=[]; c=""; }
+    else c+=ch;
   }
-  if(cur.length || row.length){
-    row.push(cur); rows.push(row);
-  }
+  r.push(c); rows.push(r);
   return rows;
 }
 </script>
+
+</body>
+</html>
+``
