@@ -1,97 +1,16 @@
-<!DOCTYPE html>
-<html lang="th">
-<head>
-  <meta charset="UTF-8" />
-  <title>CheckStock - ค้นหางาน</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-  <style>
-    body{
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      margin:0; padding:16px;
-      background:#f5f5f5; color:#111;
-    }
-    h2{ margin: 6px 0 10px; }
-
-    .status{
-      background:#fff;
-      padding:10px 12px;
-      border-radius:10px;
-      margin-bottom:12px;
-      font-size:14px;
-      box-shadow:0 1px 3px rgba(0,0,0,0.06);
-      border-left:6px solid #f9a825;
-    }
-    .status.ok{ border-left-color:#2e7d32; }
-    .status.err{ border-left-color:#c62828; }
-
-    input{
-      width:100%; box-sizing:border-box;
-      padding:14px; font-size:18px;
-      border-radius:12px; border:1px solid #ddd;
-      outline:none; margin-bottom:12px; background:#fff;
-    }
-    input:focus{ border-color:#1a73e8; }
-
-    .card{
-      background:#fff; padding:14px;
-      border-radius:12px; margin-bottom:10px;
-      box-shadow:0 1px 3px rgba(0,0,0,0.06);
-    }
-    .job{ font-weight:800; font-size:16px; margin-bottom:6px; }
-    .location{
-      font-weight:900; font-size:22px;
-      color:#1a73e8; margin:2px 0 6px;
-      word-break: break-word;
-    }
-    .muted{ color:#555; font-size:14px; }
-
-    .actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
-    .btn{
-      display:inline-block;
-      padding:10px 12px;
-      font-size:16px;
-      border-radius:10px;
-      border:0; cursor:pointer;
-      text-decoration:none;
-      user-select:none;
-    }
-    .btn.dark{ background:#333; color:#fff; }
-    .btn.blue{ background:#1a73e8; color:#fff; }
-
-    /* กล่องสรุปโซนให้เด่น */
-    #zoneInfo .card { border-left: 6px solid #1a73e8; }
-  </style>
-</head>
-
-<body>
-  <h2>ค้นหางาน</h2>
-
-  <div id="status" class="status">กำลังโหลดข้อมูลจาก Google Sheets…</div>
-
-  <input id="search"
-         placeholder="พิมพ์รหัสลูกค้า / ชื่องาน / โลเคชั่น เช่น A2-10 หรือพิมพ์โซน A2"
-         autocomplete="off" />
-
-  <!-- สรุปสถิติ -->
-  <div id="stats" class="status ok">สรุป: กำลังคำนวณ…</div>
-
-  <!-- สรุปโซน (แสดงเฉพาะตอนค้นหาเป็นโซน) -->
-  <div id="zoneInfo"></div>
-
-  <!-- ผลลัพธ์รายการ -->
-  <div id="result"></div>
-
 <script>
+/* ===== BUILD TAG (ไว้เช็กว่าโค้ดชุดนี้รันจริง) ===== */
+console.log("CheckStock BUILD: 2026-03-12-STATS-ZONE-01");
+
 /* =========================
    ตั้งค่า Google Sheets
 ========================= */
 const SHEET_ID = "17dwMvTFAu48MdQ8FwKRDJGAQuAEwpQNmoggzD8OqGJA";
-const GID = 0; // จากลิงก์ของคุณ gid=0
+const GID = 0;
 const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
 
 /* =========================
-   ตัวแปรและ DOM
+   DOM
 ========================= */
 let data = [];
 let loaded = false;
@@ -102,6 +21,13 @@ const $result = document.getElementById("result");
 const $stats = document.getElementById("stats");
 const $zoneInfo = document.getElementById("zoneInfo");
 
+if(!$stats){
+  console.error("ไม่พบ #stats -> กรุณาตรวจว่า <div id='stats'> อยู่ในหน้า HTML");
+}
+if(!$zoneInfo){
+  console.error("ไม่พบ #zoneInfo -> กรุณาตรวจว่า <div id='zoneInfo'></div> อยู่ในหน้า HTML");
+}
+
 /* =========================
    โหลดข้อมูล
 ========================= */
@@ -110,12 +36,13 @@ $search.addEventListener("input", debounce(onSearch, 120));
 
 async function loadData(){
   try{
+    $status.className = "status";
+    $status.textContent = "กำลังโหลดข้อมูลจาก Google Sheets…";
+
     const res = await fetch(CSV_URL, { cache: "no-store" });
     if(!res.ok) throw new Error("HTTP " + res.status);
 
     const text = await res.text();
-
-    // ถ้าได้ HTML หน้า login แปลว่าไม่อนุญาต
     if(text.trim().startsWith("<!DOCTYPE html")) {
       throw new Error("ได้ HTML แทน CSV (ตรวจสิทธิ์การแชร์ชีท)");
     }
@@ -123,14 +50,12 @@ async function loadData(){
     const rows = parseCSV(text);
     if(!rows || rows.length < 2) throw new Error("CSV ว่างหรืออ่านไม่สำเร็จ");
 
-    // หาหัวตาราง
     const header = rows[0].map(x => (x||"").trim().toLowerCase());
     const idxCode = header.indexOf("customer_code");
     const idxJob  = header.indexOf("job_name");
     const idxLoc  = header.indexOf("location");
-
     if(idxCode < 0 || idxJob < 0 || idxLoc < 0){
-      throw new Error("ไม่พบหัวตาราง customer_code/job_name/location ในแถวแรก");
+      throw new Error("หัวตารางต้องเป็น customer_code / job_name / location (อยู่แถวแรก)");
     }
 
     data = rows.slice(1)
@@ -142,14 +67,15 @@ async function loadData(){
       .filter(d => d.code || d.job || d.location);
 
     loaded = true;
+
+    // อัปเดตสถานะ + สรุปครั้งแรก
     $status.className = "status ok";
     $status.textContent = `โหลดสำเร็จ ✅ ${data.length} รายการ`;
 
-    // เริ่มต้น: แสดงพรีวิว + สรุป
     const preview = data.slice(0, 20);
     updateStats(data, preview);
     render(preview, true);
-    $zoneInfo.innerHTML = "";
+    if($zoneInfo) $zoneInfo.innerHTML = "";
 
     autoSearch();
   }catch(err){
@@ -161,9 +87,10 @@ async function loadData(){
 }
 
 /* =========================
-   สรุปสถิติ (ทั้งหมด + ผลค้นหา)
+   สรุปสถิติ
 ========================= */
 function countsOf(list){
+  // ใช้ Set เพื่อหาจำนวนไม่ซ้ำ (ลูกค้า/โลเคชั่น) [1](https://www.w3schools.com/html/html_editors.asp)[2](https://github.com/Peter-Haro/manual-upload-project)
   const jobs = list.length;
   const customers = new Set(list.map(x => (x.code||"").trim()).filter(Boolean)).size;
   const locations = new Set(list.map(x => (x.location||"").trim()).filter(Boolean)).size;
@@ -171,6 +98,8 @@ function countsOf(list){
 }
 
 function updateStats(fullList, filteredList){
+  if(!$stats) return;
+
   const total = countsOf(fullList);
   const filtered = countsOf(filteredList);
 
@@ -181,33 +110,25 @@ function updateStats(fullList, filteredList){
 }
 
 /* =========================
-   โหมดโซน (A2 / A2-10 / A2-10-xx)
+   โซน
 ========================= */
 function isZoneQuery(q){
-  // รูปแบบ: ตัวอักษร+ตัวเลข และอาจมี - ต่อท้ายหลายช่วง
-  // เช่น A2, A2-10, A2-10-01
+  // A2 / A2-10 / A2-10-01
   return /^[A-Za-z]+\d+(?:-[A-Za-z0-9]+)*$/.test(q);
 }
 
 function filterByZone(zone){
   const z = zone.trim().toUpperCase();
-  if(!z) return [];
-
   return data.filter(d => {
     const loc = (d.location || "").trim().toUpperCase();
     if(!loc) return false;
-
-    // ให้ "A2-10" match เฉพาะ "A2-10" หรือ "A2-10-xxx" (กัน A2-100 หลุด)
-    if(loc === z) return true;
-    if(loc.startsWith(z + "-")) return true;
-
-    // ถ้า user พิมพ์ "A2" ให้ match A2 หรือ A2-xxx
-    // (เงื่อนไขนี้จะทำงานอยู่แล้วจาก logic ด้านบน)
-    return false;
+    return (loc === z) || loc.startsWith(z + "-"); // กัน A2-100 หลุดจาก A2-10
   });
 }
 
 function renderZoneInfo(zone, list){
+  if(!$zoneInfo) return;
+
   if(!zone){
     $zoneInfo.innerHTML = "";
     return;
@@ -238,16 +159,16 @@ function onSearch(){
 
   const q = ($search.value || "").trim();
 
-  // ถ้าไม่พิมพ์อะไร: โชว์พรีวิว
+  // ไม่พิมพ์อะไร: แสดงพรีวิว + สรุป
   if(!q){
     const preview = data.slice(0, 20);
     updateStats(data, preview);
     render(preview, true);
-    $zoneInfo.innerHTML = "";
+    renderZoneInfo("", []);
     return;
   }
 
-  // ถ้าเป็นโซน: แสดงงานทั้งหมดในโซน
+  // โหมดโซน
   if(isZoneQuery(q)){
     const zoneList = filterByZone(q);
     renderZoneInfo(q, zoneList);
@@ -258,7 +179,7 @@ function onSearch(){
 
   // ค้นหาแบบปกติ
   const list = filterByQuery(q);
-  $zoneInfo.innerHTML = "";
+  renderZoneInfo("", []);
   updateStats(data, list);
   render(list, false);
 }
@@ -283,7 +204,6 @@ function render(list, isPreview){
     return;
   }
 
-  // เรียงให้อ่านง่าย: location ก่อน แล้ว job
   const sorted = [...list].sort((a,b) => {
     const la = (a.location||"").localeCompare((b.location||""), "th");
     if(la !== 0) return la;
@@ -310,7 +230,7 @@ function render(list, isPreview){
 }
 
 /* =========================
-   Auto search จาก QR (?q=...)
+   QR auto search (?q=...)
 ========================= */
 function autoSearch(){
   const q = new URLSearchParams(window.location.search).get("q");
@@ -321,7 +241,7 @@ function autoSearch(){
 }
 
 /* =========================
-   คัดลอก
+   Copy
 ========================= */
 function copyText(text){
   if(!text) return;
@@ -357,13 +277,9 @@ function escapeHtml(s){
     .replace(/'/g,"&#039;");
 }
 
-/* =========================
-   CSV parser (รองรับ comma/newline ใน "...")
-========================= */
+/* CSV parser รองรับ comma/newline ใน "..." */
 function parseCSV(text){
-  // ตัด BOM ถ้ามี
-  if(text && text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-
+  if(text && text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // BOM
   const rows = [];
   let row = [];
   let cur = "";
@@ -387,12 +303,8 @@ function parseCSV(text){
     }
   }
   if(cur.length || row.length){
-    row.push(cur);
-    rows.push(row);
+    row.push(cur); rows.push(row);
   }
   return rows;
 }
 </script>
-
-</body>
-</html>
