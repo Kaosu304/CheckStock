@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <title>CheckStock - ค้นหางาน</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+
   <style>
     body{
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
@@ -11,6 +12,7 @@
       background:#f5f5f5; color:#111;
     }
     h2{ margin: 6px 0 10px; }
+
     .status{
       background:#fff;
       padding:10px 12px;
@@ -22,6 +24,7 @@
     }
     .status.ok{ border-left-color:#2e7d32; }
     .status.err{ border-left-color:#c62828; }
+
     input{
       width:100%; box-sizing:border-box;
       padding:14px; font-size:18px;
@@ -29,6 +32,7 @@
       outline:none; margin-bottom:12px; background:#fff;
     }
     input:focus{ border-color:#1a73e8; }
+
     .card{
       background:#fff; padding:14px;
       border-radius:12px; margin-bottom:10px;
@@ -41,6 +45,7 @@
       word-break: break-word;
     }
     .muted{ color:#555; font-size:14px; }
+
     .actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
     .btn{
       display:inline-block;
@@ -53,29 +58,53 @@
     }
     .btn.dark{ background:#333; color:#fff; }
     .btn.blue{ background:#1a73e8; color:#fff; }
+
+    /* กล่องสรุปโซนให้เด่น */
+    #zoneInfo .card { border-left: 6px solid #1a73e8; }
   </style>
 </head>
 
 <body>
   <h2>ค้นหางาน</h2>
+
   <div id="status" class="status">กำลังโหลดข้อมูลจาก Google Sheets…</div>
-  <input id="search" placeholder="พิมพ์รหัสลูกค้า / ชื่องาน / โลเคชั่น เช่น A2-20" autocomplete="off" />
+
+  <input id="search"
+         placeholder="พิมพ์รหัสลูกค้า / ชื่องาน / โลเคชั่น เช่น A2-10 หรือพิมพ์โซน A2"
+         autocomplete="off" />
+
+  <!-- สรุปสถิติ -->
+  <div id="stats" class="status ok">สรุป: กำลังคำนวณ…</div>
+
+  <!-- สรุปโซน (แสดงเฉพาะตอนค้นหาเป็นโซน) -->
+  <div id="zoneInfo"></div>
+
+  <!-- ผลลัพธ์รายการ -->
   <div id="result"></div>
 
 <script>
-/* ====== ตั้งค่า Sheet ====== */
+/* =========================
+   ตั้งค่า Google Sheets
+========================= */
 const SHEET_ID = "17dwMvTFAu48MdQ8FwKRDJGAQuAEwpQNmoggzD8OqGJA";
-const GID = 0; // จากลิงก์ของคุณ: gid=0
-// ใช้ export?format=csv เพราะมัก “ไม่เพี้ยน” กว่า gviz ในหลายเคส [1](https://github.com/github/docs/blob/main/content/admin/configuring-settings/configuring-user-applications-for-your-enterprise/configuring-github-pages-for-your-enterprise.md)
+const GID = 0; // จากลิงก์ของคุณ gid=0
 const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
 
+/* =========================
+   ตัวแปรและ DOM
+========================= */
 let data = [];
 let loaded = false;
 
 const $status = document.getElementById("status");
 const $search = document.getElementById("search");
 const $result = document.getElementById("result");
+const $stats = document.getElementById("stats");
+const $zoneInfo = document.getElementById("zoneInfo");
 
+/* =========================
+   โหลดข้อมูล
+========================= */
 loadData();
 $search.addEventListener("input", debounce(onSearch, 120));
 
@@ -83,16 +112,18 @@ async function loadData(){
   try{
     const res = await fetch(CSV_URL, { cache: "no-store" });
     if(!res.ok) throw new Error("HTTP " + res.status);
-    let text = await res.text();
 
+    const text = await res.text();
+
+    // ถ้าได้ HTML หน้า login แปลว่าไม่อนุญาต
     if(text.trim().startsWith("<!DOCTYPE html")) {
-      throw new Error("ได้ HTML แทน CSV (ยังไม่เปิดสิทธิ์ชีท)");
+      throw new Error("ได้ HTML แทน CSV (ตรวจสิทธิ์การแชร์ชีท)");
     }
 
     const rows = parseCSV(text);
     if(!rows || rows.length < 2) throw new Error("CSV ว่างหรืออ่านไม่สำเร็จ");
 
-    // หาหัวตาราง (รองรับ BOM)
+    // หาหัวตาราง
     const header = rows[0].map(x => (x||"").trim().toLowerCase());
     const idxCode = header.indexOf("customer_code");
     const idxJob  = header.indexOf("job_name");
@@ -114,48 +145,152 @@ async function loadData(){
     $status.className = "status ok";
     $status.textContent = `โหลดสำเร็จ ✅ ${data.length} รายการ`;
 
-    // แสดง 20 รายการแรกเป็นตัวอย่าง
-    render(data.slice(0,20), true);
+    // เริ่มต้น: แสดงพรีวิว + สรุป
+    const preview = data.slice(0, 20);
+    updateStats(data, preview);
+    render(preview, true);
+    $zoneInfo.innerHTML = "";
 
     autoSearch();
   }catch(err){
     loaded = false;
     $status.className = "status err";
-    $status.innerHTML = `<b>โหลดข้อมูลไม่สำเร็จ ❌</b><br><span class="muted">
-      ลองเปิดลิงก์นี้ดูว่ามีข้อมูลครบไหม: <br>
-      ${escapeHtml(CSV_URL)}
-    </span>`;
+    $status.innerHTML = `<b>โหลดข้อมูลไม่สำเร็จ ❌</b><br><span class="muted">${escapeHtml(String(err))}</span>`;
     console.error(err);
   }
 }
 
-function onSearch(){
-  if(!loaded) return;
-  const q = ($search.value || "").toLowerCase().trim();
-  if(!q){
-    render(data.slice(0,20), true);
+/* =========================
+   สรุปสถิติ (ทั้งหมด + ผลค้นหา)
+========================= */
+function countsOf(list){
+  const jobs = list.length;
+  const customers = new Set(list.map(x => (x.code||"").trim()).filter(Boolean)).size;
+  const locations = new Set(list.map(x => (x.location||"").trim()).filter(Boolean)).size;
+  return { jobs, customers, locations };
+}
+
+function updateStats(fullList, filteredList){
+  const total = countsOf(fullList);
+  const filtered = countsOf(filteredList);
+
+  $stats.innerHTML = `
+    <b>สรุปทั้งหมด</b>: ${total.jobs} งาน • ${total.customers} ลูกค้า • ${total.locations} โลเคชั่น<br>
+    <b>ผลค้นหา</b>: ${filtered.jobs} งาน • ${filtered.customers} ลูกค้า • ${filtered.locations} โลเคชั่น
+  `;
+}
+
+/* =========================
+   โหมดโซน (A2 / A2-10 / A2-10-xx)
+========================= */
+function isZoneQuery(q){
+  // รูปแบบ: ตัวอักษร+ตัวเลข และอาจมี - ต่อท้ายหลายช่วง
+  // เช่น A2, A2-10, A2-10-01
+  return /^[A-Za-z]+\d+(?:-[A-Za-z0-9]+)*$/.test(q);
+}
+
+function filterByZone(zone){
+  const z = zone.trim().toUpperCase();
+  if(!z) return [];
+
+  return data.filter(d => {
+    const loc = (d.location || "").trim().toUpperCase();
+    if(!loc) return false;
+
+    // ให้ "A2-10" match เฉพาะ "A2-10" หรือ "A2-10-xxx" (กัน A2-100 หลุด)
+    if(loc === z) return true;
+    if(loc.startsWith(z + "-")) return true;
+
+    // ถ้า user พิมพ์ "A2" ให้ match A2 หรือ A2-xxx
+    // (เงื่อนไขนี้จะทำงานอยู่แล้วจาก logic ด้านบน)
+    return false;
+  });
+}
+
+function renderZoneInfo(zone, list){
+  if(!zone){
+    $zoneInfo.innerHTML = "";
     return;
   }
-  const list = data.filter(d =>
-    (d.code || "").toLowerCase().includes(q) ||
-    (d.job || "").toLowerCase().includes(q) ||
-    (d.location || "").toLowerCase().includes(q)
+  const c = countsOf(list);
+  $zoneInfo.innerHTML = `
+    <div class="card">
+      <b>โซน: ${escapeHtml(zone)}</b><br>
+      <span class="muted">มี ${c.jobs} งาน • ${c.customers} ลูกค้า • ${c.locations} โลเคชั่น</span>
+    </div>
+  `;
+}
+
+/* =========================
+   ค้นหา
+========================= */
+function filterByQuery(q){
+  const qq = q.toLowerCase();
+  return data.filter(d =>
+    (d.code || "").toLowerCase().includes(qq) ||
+    (d.job || "").toLowerCase().includes(qq) ||
+    (d.location || "").toLowerCase().includes(qq)
   );
+}
+
+function onSearch(){
+  if(!loaded) return;
+
+  const q = ($search.value || "").trim();
+
+  // ถ้าไม่พิมพ์อะไร: โชว์พรีวิว
+  if(!q){
+    const preview = data.slice(0, 20);
+    updateStats(data, preview);
+    render(preview, true);
+    $zoneInfo.innerHTML = "";
+    return;
+  }
+
+  // ถ้าเป็นโซน: แสดงงานทั้งหมดในโซน
+  if(isZoneQuery(q)){
+    const zoneList = filterByZone(q);
+    renderZoneInfo(q, zoneList);
+    updateStats(data, zoneList);
+    render(zoneList, false);
+    return;
+  }
+
+  // ค้นหาแบบปกติ
+  const list = filterByQuery(q);
+  $zoneInfo.innerHTML = "";
+  updateStats(data, list);
   render(list, false);
 }
 
+/* =========================
+   แสดงผลรายการ
+========================= */
 function render(list, isPreview){
   $result.innerHTML = "";
+
+  if(isPreview){
+    $result.innerHTML += `
+      <div class="card">
+        <b>ตัวอย่างข้อมูล 20 รายการแรก</b>
+        <div class="muted">พิมพ์ค้นหาเพื่อกรอง หรือพิมพ์โซนเช่น A2-10 เพื่อดูงานทั้งหมดในโซน</div>
+      </div>
+    `;
+  }
+
   if(!list.length){
-    $result.innerHTML = `<div class="card"><b>ไม่พบข้อมูล</b><div class="muted">ลองพิมพ์ใหม่ เช่น รหัสลูกค้า หรือ A2-20</div></div>`;
+    $result.innerHTML += `<div class="card"><b>ไม่พบข้อมูล</b><div class="muted">ลองพิมพ์ใหม่ เช่น รหัสลูกค้า หรือ A2-10</div></div>`;
     return;
   }
 
-  if(isPreview){
-    $result.innerHTML += `<div class="card"><b>ตัวอย่างข้อมูล 20 รายการแรก</b><div class="muted">พิมพ์ค้นหาเพื่อกรองรายการ</div></div>`;
-  }
+  // เรียงให้อ่านง่าย: location ก่อน แล้ว job
+  const sorted = [...list].sort((a,b) => {
+    const la = (a.location||"").localeCompare((b.location||""), "th");
+    if(la !== 0) return la;
+    return (a.job||"").localeCompare((b.job||""), "th");
+  });
 
-  for(const d of list){
+  for(const d of sorted){
     const loc = (d.location || "").trim();
     const mapUrl = `maps/${encodeURIComponent(loc)}.jpg`;
 
@@ -164,6 +299,7 @@ function render(list, isPreview){
         <div class="job">${escapeHtml(d.job || "")}</div>
         <div class="location">${escapeHtml(loc)}</div>
         <div class="muted">รหัสลูกค้า: ${escapeHtml(d.code || "")}</div>
+
         <div class="actions">
           <button class="btn dark" type="button" onclick="copyText('${escapeForJs(loc)}')">📋 คัดลอกโลเคชั่น</button>
           <a class="btn blue" href="${mapUrl}" target="_blank" rel="noopener">🗺 เปิดแผนที่</a>
@@ -173,15 +309,20 @@ function render(list, isPreview){
   }
 }
 
+/* =========================
+   Auto search จาก QR (?q=...)
+========================= */
 function autoSearch(){
-  const params = new URLSearchParams(window.location.search);
-  const q = params.get("q");
+  const q = new URLSearchParams(window.location.search).get("q");
   if(q){
     $search.value = q;
     onSearch();
   }
 }
 
+/* =========================
+   คัดลอก
+========================= */
 function copyText(text){
   if(!text) return;
   navigator.clipboard.writeText(text).then(()=>{
@@ -191,40 +332,67 @@ function copyText(text){
   });
 }
 
+/* =========================
+   Utilities
+========================= */
 function debounce(fn, ms){
   let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms); };
 }
 
 function escapeForJs(s){
-  return String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'").replace(/"/g,'\\"').replace(/\n/g,"\\n").replace(/\r/g,"\\r");
-}
-function escapeHtml(s){
-  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
+  return String(s)
+    .replace(/\\/g,"\\\\")
+    .replace(/'/g,"\\'")
+    .replace(/"/g,'\\"')
+    .replace(/\n/g,"\\n")
+    .replace(/\r/g,"\\r");
 }
 
-/* CSV parser รองรับ comma/newline ใน "..." (split แบบง่ายทำพังได้) [2](https://w11.es/en/Tutorials/How-to-save-a-notepad-file-as-HTML-in-Windows-11/) */
+function escapeHtml(s){
+  return String(s)
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;")
+    .replace(/'/g,"&#039;");
+}
+
+/* =========================
+   CSV parser (รองรับ comma/newline ใน "...")
+========================= */
 function parseCSV(text){
-  if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // BOM
-  const rows=[]; let row=[]; let cur=""; let inQuotes=false;
+  // ตัด BOM ถ้ามี
+  if(text && text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+
+  const rows = [];
+  let row = [];
+  let cur = "";
+  let inQuotes = false;
 
   for(let i=0;i<text.length;i++){
-    const c=text[i], n=text[i+1];
+    const c = text[i];
+    const n = text[i+1];
+
     if(c === '"'){
-      if(inQuotes && n === '"'){ cur+='"'; i++; }
+      if(inQuotes && n === '"'){ cur += '"'; i++; }
       else inQuotes = !inQuotes;
     }else if(c === ',' && !inQuotes){
-      row.push(cur); cur="";
+      row.push(cur); cur = "";
     }else if((c === '\n' || c === '\r') && !inQuotes){
       if(c === '\r' && n === '\n') i++;
       row.push(cur); rows.push(row);
-      row=[]; cur="";
+      row = []; cur = "";
     }else{
       cur += c;
     }
   }
-  if(cur.length || row.length){ row.push(cur); rows.push(row); }
+  if(cur.length || row.length){
+    row.push(cur);
+    rows.push(row);
+  }
   return rows;
 }
 </script>
+
 </body>
 </html>
