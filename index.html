@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <title>ค้นหางาน</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 16px;
+      background: #f5f5f5;
+    }
+    input {
+      width: 100%;
+      padding: 14px;
+      font-size: 18px;
+      margin-bottom: 12px;
+    }
+    .card {
+      background: white;
+      padding: 16px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+    }
+    .location {
+      font-size: 22px;
+      font-weight: bold;
+      color: #1a73e8;
+    }
+  </style>
+</head>
+<body>
+
+<h2>ค้นหางาน</h2>
+
+<input id="search" placeholder="พิมพ์รหัสลูกค้า หรือ ชื่องาน">
+
+<div id="result"></div>
+
+<script>
+const SHEET_ID = "17dwMvTFAu48MdQ8FwKRDJGAQuAEwpQNmoggzD8OqGJA";
+const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv`;
+
+let data = [];
+
+fetch(CSV_URL)
+  .then(res => res.text())
+  .then(text => {
+    const rows = text.split("\n").slice(1);
+    data = rows.map(r => {
+      const [code, job, location] = r.split(",");
+      return { code, job, location };
+    });
+    autoSearch();
+  });
+
+document.getElementById("search").addEventListener("input", search);
+
+function search() {
+  const q = document.getElementById("search").value.toLowerCase();
+  const result = data.filter(d =>
+    d.code?.toLowerCase().includes(q) ||
+    d.job?.toLowerCase().includes(q)
+  );
+  render(result);
+}
+
+function render(list) {
+  const el = document.getElementById("result");
+  el.innerHTML = "";
+  list.forEach(d => {
+    el.innerHTML += `
+      <div class="card">
+        <div><b>${d.job}</b></div>
+        <div class="location">${d.location}</div>
+        <div>รหัสลูกค้า: ${d.code}</div>
+      </div>
+    `;
+  });
+}
+
+function autoSearch() {
+  const params = new URLSearchParams(window.location.search);
+  const q = params.get("q");
+  if (q) {
+    document.getElementById("search").value = q;
+    search();
+  }
+}
+</script>
+
+</body>
+</html>
